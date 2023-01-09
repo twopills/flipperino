@@ -36,6 +36,7 @@ struct COMBO {
   int hit;
   bool active;
 };
+
 COMBO Combo_0 = { time: 12000, mult: 1, hit: 0, active: true };
 COMBO Combo_1 = { time: 5000, mult: 1.5, hit: 15, active: false };
 COMBO Combo_2 = { time: 3000, mult: 1.75, hit: 25, active: false };
@@ -177,6 +178,7 @@ void comboActivator(int comboId, bool status) {
       Combo_4.active = status;
       break;
   }
+    updateGameScreen(2);
 }
 float getActiveComboMult() {    
     if(Combo_0.active) {
@@ -348,12 +350,17 @@ void assignScore(int pinActivated) {
     Game.hitCounter = 0;
     Game.comboHitCounter = 0;
     Game.lastSensorHit = 0;
-    Game.lastComboHitTime = 0;     
+    Game.lastComboHitTime = 0;
+    updateGameScreen(1);     
   }
 
   //Se devo calcolare lo score, eseguo il calcolo
-  if (calculateScore)
+  if (calculateScore) {
     Game.score += (baseScore*getActiveComboMult()); //Aggiungo il punteggio per il sensore colpito insieme al moltiplicatore
+    updateGameScreen(4);
+    updateGameScreen(1);
+    updateGameScreen(3);
+  }
 
   //Se ho tot hit attivi, avvio lo spinner
   if(Game.spinnerActive) {
@@ -370,16 +377,13 @@ void manageGameStatus() {
     if(ballReady()) {
       Serial.println(" !!! Inizia la partita !!!");
       Game.inGame = true; //Sono all'inizio della mia partita
-      Game.lastUpdatedScore = 0;
-      Game.score = 0;
-      Game.life = 3;
     }
   }else{ //SONO IN GAME
     //La pallina è su START
     if(ballReady()) {
       Game.inGame = true;
-      /**/
       Game.spinnerActive = false;
+      updateGameScreen(4);
       //Dall'ultima volta che sono stato sullo start ho fatto dei punti e ho ancora le vite.
       if(Game.lastUpdatedScore != Game.score && Game.life > 0 && (Game.score-Game.lastLifeScore) > 75) {
         Game.life -= 1; //Ho perso una vita
@@ -394,9 +398,8 @@ void manageGameStatus() {
         Serial.print(" !!! HAI PERSO 1 VITA, ne hai ancora ");
         Serial.print(Game.life);        
         Serial.println(" !!!");
-        flushGameScreen();
-        updateGameScreen();
-        delay(50); //Attendo 50 millisecondi prima di fare altro
+        Serial.println("Entro da GAME STATUS LIFE--");
+        updateGameScreen(10);
       }
       //Se ho finito le vite
       if(Game.life == 0) {
@@ -413,9 +416,13 @@ void manageGameStatus() {
         saveHighScore(Game.score); //Salvo se ho ottenuto il punteggio record
         updateScoreBoard(); //Aggiorno la ScoreBoard
         scoreBoardSort();
-        printScoreBoard(); //Stampo la ScoreBoard       
-        flushGameScreen();
-        updateGameScreen();
+        printScoreBoard(); //Stampo la ScoreBoard
+        Serial.println("Entro da GAME STATUS LIFE 0");
+        updateGameScreen(10);
+        Game.lastUpdatedScore = 0;
+        Game.score = 0;
+        Game.life = 3;
+        Display.gameScreenDrawn = false;
         delay(50); //Attendo 50 millisecondi prima di fare altro
       }
       /**/      
@@ -445,8 +452,8 @@ void serialPrintScore(int tempTotal) {
       Serial.print(getActiveComboMult());
       Serial.print(" \\ COMBO TIME: ");
       Serial.println(getActiveComboTime());
-      flushGameScreen();
-      updateGameScreen();
+      updateGameScreen(3);
+      updateGameScreen(1);
     }
 }
 
@@ -495,7 +502,7 @@ void newProfile() {
 
   for (int i = 0; i <= 2; i++)
     _name[i] = nameString[i];
-  _name[3] = ' ';
+  _name[3] = '\0';
 
   Serial.println(_name);
 
@@ -708,7 +715,8 @@ void mainMenu() {
 
   Serial.flush();
   choice = Serial.parseInt();
-  
+
+  choice = 1;
   switch(choice) {
     case 1: 
       if (Flipper.activeProfile.profileActive == 1) {
@@ -789,86 +797,144 @@ int getScoreXPosition(int score){
 void drawGameScreen(void){
   
   my_lcd.Fill_Screen(BG_COLOR);
+    
+  my_lcd.Set_Draw_color(255, 255, 255);
+  // generico sotto
+  my_lcd.Draw_Rectangle(15, 61, 785, 465);
+  // centrale
+  my_lcd.Draw_Rectangle(308, 0, 492, 465);
+  // rettangolo centralissimo
+  my_lcd.Draw_Rectangle(308, 268, 492, 325);
+  // sotto sx
+  my_lcd.Draw_Rectangle(15, 112, 308, 162);
+  // sotto dx
+  my_lcd.Draw_Rectangle(492, 112, 785, 162);
+  // sotto 2 dx
+  my_lcd.Draw_Rectangle(492, 212, 785, 262);
+  // sotto 3 dx
+  my_lcd.Draw_Rectangle(492, 262, 785, 312);
+  // sotto 4 dx
+  my_lcd.Draw_Rectangle(492, 312, 785, 362);
   
- my_lcd.Set_Draw_color(255, 255, 255);
- // generico sotto
- my_lcd.Draw_Rectangle(15, 61, 785, 465);
- // centrale
- my_lcd.Draw_Rectangle(308, 0, 492, 465);
- // rettangolo centralissimo
- my_lcd.Draw_Rectangle(308, 268, 492, 325);
- // sotto sx
- my_lcd.Draw_Rectangle(15, 112, 308, 162);
- // sotto dx
- my_lcd.Draw_Rectangle(492, 112, 785, 162);
- // sotto 2 dx
- my_lcd.Draw_Rectangle(492, 212, 785, 262);
- // sotto 3 dx
- my_lcd.Draw_Rectangle(492, 262, 785, 312);
- // sotto 4 dx
- my_lcd.Draw_Rectangle(492, 312, 785, 362);
-
- // sopra sx riempito
- my_lcd.Fill_Rectangle(15, 62, 308, 112);
- // sopra dx riempito
- my_lcd.Fill_Rectangle(492, 62, 785, 112);
- // sotto dx
- my_lcd.Fill_Rectangle(492, 162, 785, 212);
- // sotto dx
- my_lcd.Fill_Rectangle(492, 262, 785, 312);
-
- Display.gameScreenDrawn = true;
-}
-
-void updateGameScreen(void) {
-  // USER
+  // sopra sx riempito
+  my_lcd.Fill_Rectangle(15, 62, 308, 112);
+  // sopra dx riempito
+  my_lcd.Fill_Rectangle(492, 62, 785, 112);
+  // sotto dx
+  my_lcd.Fill_Rectangle(492, 162, 785, 212);
+  // sotto dx
+  my_lcd.Fill_Rectangle(492, 262, 785, 312);
+  // NOME PROFILO ATTIVO
   my_lcd.Set_Text_colour(255, 255, 255);
   my_lcd.Set_Text_Size(4); // moltiplicatore di font size
   my_lcd.Set_Text_Mode(1); // mode > 0 : senza sfondo
   my_lcd.Print_String(Flipper.activeProfile.name, CENTER, 16); // stringa, posizione, margin-top
-  // HIT SCORE
-  my_lcd.Set_Text_Size(12);
-  my_lcd.Print_String(String(Game.hitCounter), CENTER, 100); // stringa, posizione, margin-top
   // HIT
   my_lcd.Set_Text_Size(5);
   my_lcd.Print_String("HIT", CENTER, 215); 
   // MULT
   my_lcd.Set_Text_Size(3);
   my_lcd.Print_String("MULT", CENTER, 340); 
-  // MULT
-  my_lcd.Set_Text_Size(7);
-  my_lcd.Print_String(String(getActiveComboMult()), CENTER, 387);
-  // LIFE SCORE 
-  my_lcd.Set_Text_Size(3); 
-  my_lcd.Print_String(String(Game.life), 518, 20);
-  // LIFE
+  // LIFE TEXT
   my_lcd.Set_Text_Size(3); 
   my_lcd.Print_String("LIFE", 690, 20);
-  // LIFE
-  my_lcd.Set_Text_Size(3); 
-  my_lcd.Print_String(String(Game.score), getScoreXPosition(Game.score), 125);
-  // POINT SCORE
+  // SCORE TEXT
   my_lcd.Set_Text_colour(0, 0, 0);
   my_lcd.Set_Text_Size(4); 
   my_lcd.Print_String("SCORE", 518, 74);
+  // SPINNER TEXT
+  my_lcd.Set_Text_colour(0, 0, 0);
+  my_lcd.Set_Text_Size(4); 
+  my_lcd.Print_String("SPINNER", 518, 174);
+  // TIME TEXT
+  my_lcd.Set_Text_colour(0, 0, 0);
+  my_lcd.Set_Text_Size(4); 
+  my_lcd.Print_String("TIME", 518, 274);
+
+  Display.gameScreenDrawn = true;
 }
 
-void flushGameScreen() {
+void updateGameScreen(int screenArea) {
+  //1 : HIT NUM
+  //2 : MULT NUM
+  //3 : SCORE NUM
+  //4 : SPINNER STATE
+  //5 : TIME NUM
+  //6 : LIFE NUM
+  //7 : POS NUM // Ancora da implementare
+  //8 : GAP NUM // Ancora da implementare
+  //10 : TUTTO
+  
+  bool updateFull = false;
+  
+  if (screenArea == 10) {
+    screenArea = 1;
+    updateFull = true;
+  }
+  
+  my_lcd.Set_Text_colour(255, 255, 255);
+  
+  do {
+    switch (screenArea) {
+      case 1: my_lcd.Set_Draw_color(20, 30, 30);
+              my_lcd.Fill_Rectangle(312, 90, 488, 185);
+              my_lcd.Set_Text_Size(12); // HIT NUM
+              my_lcd.Print_String(String(Game.hitCounter), CENTER, 100);
+              break;
+      case 2: my_lcd.Set_Draw_color(20, 30, 30);
+              my_lcd.Fill_Rectangle(312, 383, 488, 436);
+              my_lcd.Set_Text_Size(7); // MULT NUM
+              my_lcd.Print_String(String(getActiveComboMult()), CENTER, 387);
+              break;
+      case 3: my_lcd.Set_Draw_color(20, 30, 30);
+              my_lcd.Fill_Rectangle(496, 116, 781, 158);
+              my_lcd.Set_Text_Size(3); // SCORE NUM
+              my_lcd.Print_String(String(Game.score), getScoreXPosition(Game.score), 125);
+              break;
+      case 4: my_lcd.Set_Draw_color(20, 30, 30);
+              my_lcd.Fill_Rectangle(496, 216, 781, 258);
+              my_lcd.Set_Text_Size(3); // SPINNER STATE
+              if (Game.spinnerActive) 
+                my_lcd.Print_String("ACTIVE", 655, 225);
+              else my_lcd.Print_String("UNACTIVE", 615, 225);
+              break;
+      case 5: my_lcd.Set_Draw_color(20, 30, 30);
+              my_lcd.Fill_Rectangle(496, 316, 781, 358);
+              my_lcd.Set_Text_Size(3); // TIME NUM
+              my_lcd.Print_String(String((millis()-Game.startTime)/1000), 680, 325); //DA AGGIUNGERE FUNZIONE PER POSIZIONE TEMPO E STAMPA IN MINUTI E SECONDI
+              break;
+      case 6: my_lcd.Set_Draw_color(20, 30, 30);
+              my_lcd.Fill_Rectangle(518, 4, 535, 57);
+              my_lcd.Set_Text_Size(3); // LIFE NUM
+              my_lcd.Print_String(String(Game.life), 518, 20);
+              break;
+      default: break;  
+    }
+
+    if(screenArea <= 6)
+        screenArea++;
+      else
+        updateFull = false;
+    
+  } while (updateFull);
+}
+
+void debugFlushGameScreen() { // FLUSH DELLO SCHERMO DI GIOCO PER DEBUG
   //COLORE DEL BG
   my_lcd.Set_Draw_color(20, 30, 30);
-
-  // Centrale alto // NOME
-  my_lcd.Fill_Rectangle(312, 4, 488, 56);
+  
+  // ROSSO / PER DEBUG
+  //my_lcd.Set_Draw_color(255, 0, 0);
 
   // Centrale Medio // HIT
-  my_lcd.Fill_Rectangle(312, 64, 488, 264);
+  my_lcd.Fill_Rectangle(312, 90, 488, 185);
   
   // Centrale Medio Sotto // MULT TIME
-  my_lcd.Fill_Rectangle(312, 264, 488, 321);
-
+  my_lcd.Fill_Rectangle(312, 272, 488, 321);
+  
   // Centrale sotto // MULT
-  my_lcd.Fill_Rectangle(312, 329, 488, 461);
- 
+  my_lcd.Fill_Rectangle(312, 383, 488, 436);
+  
   // Sinistra sotto // SCORE TO NEXT
   my_lcd.Fill_Rectangle(19, 118, 304, 158);
  
@@ -879,27 +945,11 @@ void flushGameScreen() {
   my_lcd.Fill_Rectangle(496, 216, 781, 258);
  
   // Destra sotto // TIME NUM
-  my_lcd.Fill_Rectangle(496, 266, 781, 308);
- 
-  // Destra sotto // BOH
   my_lcd.Fill_Rectangle(496, 316, 781, 358);
- 
+
   // Destra sopra // LIFE
-  my_lcd.Fill_Rectangle(496, 4, 781, 57);
+  my_lcd.Fill_Rectangle(518, 4, 535, 57);
 
-  my_lcd.Set_Draw_color(255, 255, 255);
-
-  // Sinistra sopra // SCORE TO NEXT - TEXT
-  my_lcd.Fill_Rectangle(19, 66, 304, 108);
-  
-  // Destra sopra // SCORE TEXT
-  my_lcd.Fill_Rectangle(496, 65, 781, 108);
- 
-  // Destra sotto // SPINNER TEXT
-  my_lcd.Fill_Rectangle(496, 166, 781, 208);
- 
-  // Destra sotto // TIME TEXT
-  my_lcd.Fill_Rectangle(496, 266, 781, 308);
 }
 
 void setup() {
@@ -943,15 +993,14 @@ void setup() {
 }
 
 void loop() {
-
-  /*if (!Game.inGame)  
-    mainMenu(); //Se non sono in game, entro nel menù
-*/
-
   Game.inGame = true;
+  if (!Game.inGame)  
+    mainMenu(); //Se non sono in game, entro nel menù
+
   if (Game.inGame == true && Display.gameScreenDrawn == false) {
     drawGameScreen();
-    updateGameScreen();
+    Serial.println("Entro da VOID LOOP");
+    updateGameScreen(10);
   }
   //Sono in game
   int tempTotal = Game.score;
