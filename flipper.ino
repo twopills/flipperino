@@ -8,6 +8,7 @@
 */
 #include <LCDWIKI_GUI.h> //Core graphics library
 #include <LCDWIKI_KBV.h> //Hardware-specific library
+#include <LCDWIKI_TOUCH.h>
 
 #define BG_COLOR 0x10E3
 #define WHITE 0xF
@@ -30,6 +31,11 @@
 #define PIN_SPINTA 12
 #define PROFILES 11
 
+LCDWIKI_KBV my_lcd(NT35510,40,38,39,43,41); //model,cs,cd,wr,rd,reset
+LCDWIKI_TOUCH my_touch(53,52,50,51,44); //tcs,tclk,tdout,tdin,tirq
+
+char name[4] = "LMZ";
+
 struct COMBO {
   int time;
   float mult;
@@ -49,6 +55,7 @@ struct GAME {
   int score, lastLifeScore, lastUpdatedScore;
   bool inGame, comboBreak, spinnerActive;
   int life;   
+  int tempLife;
 };
 GAME Game = { 
   hitCounter: 0, comboHitCounter: 0, 
@@ -56,7 +63,8 @@ GAME Game = {
   lastSensorHitTime: 0, lastComboHitTime: 0, lifeStartTime: 0, startTime: 0,
   score: 0, lastLifeScore: 0, lastUpdatedScore: 0, 
   inGame: false, comboBreak: false, spinnerActive: false, 
-  life: 3 
+  life: 1,
+  tempLife: 0
 };
 
 struct PROFILE {
@@ -98,6 +106,8 @@ struct GAMEDISPLAY {
 };
 
 GAMEDISPLAY Display = { gameScreenDrawn : false };
+
+int pauseMenuDraw = 0;
 
 void setupPin() {
   //PIN INPUT -- LETTURA
@@ -372,21 +382,16 @@ void assignScore(int pinActivated) {
 //Semplice verifica e gestione dello stato di gioco
 void manageGameStatus() {
 
-  if (!Game.inGame) {  //NON SONO IN GAME
-    //Se la pallina è su START, non sono in game e lo score è 0, allora posso iniziare
-    if(ballReady()) {
-      Serial.println(" !!! Inizia la partita !!!");
-      Game.inGame = true; //Sono all'inizio della mia partita
-    }
-  }else{ //SONO IN GAME
     //La pallina è su START
     if(ballReady()) {
       Game.inGame = true;
+      Game.tempLife = Game.life;
       Game.spinnerActive = false;
       updateGameScreen(4);
+      updateGameScreen(6);
       //Dall'ultima volta che sono stato sullo start ho fatto dei punti e ho ancora le vite.
-      if(Game.lastUpdatedScore != Game.score && Game.life > 0 && (Game.score-Game.lastLifeScore) > 75) {
-        Game.life -= 1; //Ho perso una vita
+      if(Game.lastUpdatedScore != Game.score && Game.tempLife > 0 && (Game.score-Game.lastLifeScore) > 75) {
+        Game.tempLife -= 1; //Ho perso una vita
         Game.lastLifeScore = Game.score; //Aggiorno il punteggio dell'ultima vita  
         Game.lastUpdatedScore = Game.score; //Segno l'ultimo score fatto da quando ho perso una vita
         Game.hitCounter = 0; //Azzero l'hit counter perchè ho perso una vita
@@ -396,13 +401,13 @@ void manageGameStatus() {
         Game.lifeStartTime = millis();
         Game.lastSensorConsecutiveHit = 0;     
         Serial.print(" !!! HAI PERSO 1 VITA, ne hai ancora ");
-        Serial.print(Game.life);        
+        Serial.print(Game.tempLife);        
         Serial.println(" !!!");
         Serial.println("Entro da GAME STATUS LIFE--");
         updateGameScreen(10);
       }
       //Se ho finito le vite
-      if(Game.life == 0) {
+      if(Game.tempLife == 0) {
         Game.inGame = false; // Hai perso la partita
         Game.lastLifeScore = 0; //Azzero il punteggio dell'ultima vita  
         Serial.print(" !!! HAI PERSO!! Il tuo score: ");  
@@ -421,13 +426,13 @@ void manageGameStatus() {
         updateGameScreen(10);
         Game.lastUpdatedScore = 0;
         Game.score = 0;
-        Game.life = 3;
         Display.gameScreenDrawn = false;
+        pauseMenuDraw = 0;
+        Game.tempLife = Game.life;
+        my_lcd.Fill_Screen(BG_COLOR);
         delay(50); //Attendo 50 millisecondi prima di fare altro
       }
-      /**/      
-    }    
-  }
+    }
 }
 
 // ||--!! METODI STRUCT FLIPPER !!--||
@@ -668,7 +673,7 @@ void printScoreBoard() {
 // ||--!! METODI LOOP !!--||
 //Loop di gioco
 void gameLoop(int tempTotal) {
-
+  updateGameScreen(5);
   int pinActive = 0;
   //Gestisco il sensore di MOLLA
   Flipper.molla = digitalRead(PIN_MOLLE);
@@ -699,9 +704,10 @@ void gameLoop(int tempTotal) {
   serialPrintScore(tempTotal);
 }
 void mainMenu() {
-
-  int choice = -1;
-  choice = Serial.parseInt();
+   int choice = managerTouchScreen();
+  
+  // int choice = -1;
+  // choice = Serial.parseInt();
 
   Serial.println("=== MENU ===");
   Serial.print("// PROFILO ATTIVO: ");
@@ -711,12 +717,12 @@ void mainMenu() {
   Serial.println("Premi 3. Per Creare un profilo");
   Serial.println("Premi 4. Per vedere la Scoreboard");
 
-  while (Serial.available() == 0) {}
+  // while (Serial.available() == 0) {}
 
-  Serial.flush();
-  choice = Serial.parseInt();
+  // Serial.flush();
+  // choice = Serial.parseInt();
 
-  choice = 1;
+  // choice = 1;
   switch(choice) {
     case 1: 
       if (Flipper.activeProfile.profileActive == 1) {
@@ -769,9 +775,7 @@ void flushScoreBoard() {
 
 }
 
-LCDWIKI_KBV my_lcd(NT35510,40,38,39,43,41); //model,cs,cd,wr,rd,reset
 
-char name[4] = "LMZ";
 
 int getScoreXPosition(int score){
   int pixel = 20;
@@ -854,6 +858,55 @@ void drawGameScreen(void){
   Display.gameScreenDrawn = true;
 }
 
+void drawCheckeredFlag (int sizePx, int h, int w, bool firstFill, int xStart, int yStart) {
+  
+  my_lcd.Set_Draw_color(255,255,255);
+  
+  for(int i = 0; i < w; i++) { //Scorro in orizzontale
+    for (int j = 0; j < h; j++) { //Scorro in verticale
+      if (firstFill) {
+        if (i%2 == 0) {
+          if(j == 0 && i == 0) //Il primo quadrato in alto a sinistra
+            my_lcd.Fill_Rectangle(xStart, yStart, xStart+sizePx, yStart+sizePx);
+          else if(j%2 == 0)
+            my_lcd.Fill_Rectangle(xStart, yStart+(sizePx*j), xStart+sizePx, yStart+((sizePx*j)+sizePx));
+        } else if(j%2 != 0) {
+            my_lcd.Fill_Rectangle(xStart, yStart+((sizePx)*j), xStart+sizePx, yStart+((sizePx)*j)+sizePx);
+        }
+      }
+    }
+    xStart += sizePx;
+  }
+}
+
+int getSecond() {
+  int second = ((millis()-Game.startTime)/1000);
+  int minutes;
+  if((second / 60) >= 1){
+    minutes = second / 60;
+    second = second - (60*minutes);
+  }
+  return second;
+}
+
+
+int getMinutes() {
+  int second = ((millis()-Game.startTime)/1000);
+  int minutes = 0;
+  if((second / 60) >= 1){
+    minutes = second / 60;
+    second = second - (60*minutes);
+  }
+  return minutes;
+}
+
+
+String formattedTime() {
+  if(getMinutes() == 0 ){
+    return String(getSecond())+"\"";
+  } return String(getMinutes())+"'"+String(getSecond())+"\"";
+}
+
 void updateGameScreen(int screenArea) {
   //1 : HIT NUM
   //2 : MULT NUM
@@ -901,12 +954,14 @@ void updateGameScreen(int screenArea) {
       case 5: my_lcd.Set_Draw_color(20, 30, 30);
               my_lcd.Fill_Rectangle(496, 316, 781, 358);
               my_lcd.Set_Text_Size(3); // TIME NUM
-              my_lcd.Print_String(String((millis()-Game.startTime)/1000), 680, 325); //DA AGGIUNGERE FUNZIONE PER POSIZIONE TEMPO E STAMPA IN MINUTI E SECONDI
+              // my_lcd.Print_String(String((millis()-Game.startTime)/1000), 680, 325); //DA AGGIUNGERE FUNZIONE PER POSIZIONE TEMPO E STAMPA IN MINUTI E SECONDI
+              my_lcd.Print_String(formattedTime(), 680, 325); 
               break;
       case 6: my_lcd.Set_Draw_color(20, 30, 30);
               my_lcd.Fill_Rectangle(518, 4, 535, 57);
               my_lcd.Set_Text_Size(3); // LIFE NUM
-              my_lcd.Print_String(String(Game.life), 518, 20);
+              Serial.println(Game.tempLife);
+              my_lcd.Print_String(String(Game.tempLife), 518, 20);
               break;
       default: break;  
     }
@@ -952,6 +1007,27 @@ void debugFlushGameScreen() { // FLUSH DELLO SCHERMO DI GIOCO PER DEBUG
 
 }
 
+void writeTextLCD(int R, int G, int B, int _size, String value, int relativePositionX, int xStart, int yStart) {
+  my_lcd.Set_Text_colour(R, G, B);
+  my_lcd.Set_Text_Size(_size); // moltiplicatore di font size
+  my_lcd.Set_Text_Mode(1); // mode > 0 : senza sfondo
+  if(xStart == -1){
+    switch(relativePositionX){
+      case 0:
+        my_lcd.Print_String(value, LEFT, yStart); // stringa, posizione, margin-top   
+        break;
+      case 1:
+        my_lcd.Print_String(value, CENTER, yStart); // stringa, posizione, margin-top   
+        break;
+     case 2:
+        my_lcd.Print_String(value, RIGHT, yStart); // stringa, posizione, margin-top   
+        break;
+    }
+  } else {
+       my_lcd.Print_String(value, xStart, yStart); // stringa, posizione, margin-top    
+  }
+}
+
 void setup() {
 
   my_lcd.Init_LCD();
@@ -992,10 +1068,75 @@ void setup() {
   checkProfile();
 }
 
+void drawMainMenu() {
+
+  my_lcd.Set_Draw_color(255,255,255);
+  my_lcd.Draw_Rectangle(188, 313, 188+(20*5), 313+(20*5));
+  writeTextLCD(255,255, 255, 3, "PLAY", -1, 208, 280);
+
+  my_lcd.Set_Draw_color(40, 220, 80);  
+  my_lcd.Fill_Rectangle(288+10, 313, 288+10+(20*5), 313+(20*5));
+  writeTextLCD(255,255, 255, 3, "USER", -1, 314, 280);
+  
+  my_lcd.Set_Draw_color(255, 220, 30);
+  my_lcd.Fill_Rectangle(388+20, 313, 388+20+(20*5), 313+(20*5));
+  writeTextLCD(255,255, 255, 3, "SCORE", -1, 413, 280);
+  
+  my_lcd.Set_Draw_color(40, 40, 70);
+  my_lcd.Fill_Rectangle(488+30, 313, 488+30+(20*5), 313+(20*5));
+  writeTextLCD(255,255, 255, 3, "EDIT", -1, 538, 280);
+
+  drawCheckeredFlag(20, 5, 5, true, 188, 313);
+  
+  my_lcd.Draw_Rectangle(288+10, 313, 288+10+(20*5), 313+(20*5));
+  my_lcd.Draw_Rectangle(388+20, 313, 388+20+(20*5), 313+(20*5));
+  my_lcd.Draw_Rectangle(488+30, 313, 488+30+(20*5), 313+(20*5));
+  
+  my_lcd.Set_Draw_color(100,100,100);
+  my_lcd.Draw_Rectangle(588+40, 313,    588+40+45, 313+45);
+  my_lcd.Draw_Rectangle(588+40, 313+55, 588+40+45, 313+100);
+  
+}
+
+boolean is_pressed(int16_t y1,int16_t x1,int16_t y2,int16_t x2,int16_t px,int16_t py)
+{
+    if((px > x1 && px < x2) && (py > y1 && py < y2))
+    {
+        Serial.println("true");
+        return true;  
+    } 
+    else
+    {
+      // Serial.println("false");
+        return false;  
+    }
+ }
+
+int managerTouchScreen() {
+  int16_t px = 0;
+  int16_t py = 0;
+  my_touch.TP_Scan(0);
+  if (my_touch.TP_Get_State()&TP_PRES_DOWN) {
+    px = my_touch.x;
+    py = my_touch.y;
+  } 
+  if(is_pressed(799-(188+(20*5)), 479-(313+(20*5)), 799-188, 478-313, px, py)){
+    return 1;
+  }
+  return -1;
+}
+
 void loop() {
-  Game.inGame = true;
-  if (!Game.inGame)  
+
+  // Game.inGame = true;
+
+  if (!Game.inGame) {  
+    if(pauseMenuDraw==0){
+      drawMainMenu();
+      pauseMenuDraw++;
+    }
     mainMenu(); //Se non sono in game, entro nel menù
+  }
 
   if (Game.inGame == true && Display.gameScreenDrawn == false) {
     drawGameScreen();
@@ -1003,7 +1144,9 @@ void loop() {
     updateGameScreen(10);
   }
   //Sono in game
-  int tempTotal = Game.score;
-  gameLoop(tempTotal);
-  manageGameStatus();
+  if (Game.inGame) {
+    int tempTotal = Game.score;
+    gameLoop(tempTotal);
+    manageGameStatus();
+  }
 }
