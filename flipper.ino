@@ -67,7 +67,7 @@ GAME Game = {
   lastSensorHitTime: 0, lastComboHitTime: 0, lifeStartTime: 0, startTime: -1,
   score: 0, lastLifeScore: 0, lastUpdatedScore: 0, 
   inGame: false, comboBreak: false, spinnerActive: false, 
-  life: 3,
+  life: 1,
   tempLife: 0
 };
 
@@ -97,13 +97,17 @@ EEPROM_M EepromManager = {0};
 
 struct SCOREBOARD {
   unsigned short int score;
-  char *name;
+  char name[4];
 };
-static void insert (SCOREBOARD *sb, char *name, unsigned short int score) {
-  sb->name = name;
+
+static void insert(SCOREBOARD *sb, const char *name, unsigned short int score) {
+  strncpy(sb->name, name, sizeof(sb->name) - 1); // Copia il nome nell'array name della struttura
+  sb->name[sizeof(sb->name) - 1] = '\0'; // Assicurati che il nome sia terminato correttamente
   sb->score = score;
 }
-struct SCOREBOARD Scoreboard[10];
+
+struct SCOREBOARD Scoreboard[11];
+SCOREBOARD StoredScoreboard[11];
 
 struct GAMEDISPLAY {
   bool gameScreenDrawn; //Check se lo schermo di gioco e(con accento) stato aggiornato
@@ -115,9 +119,23 @@ struct GAMEDISPLAY {
 
 GAMEDISPLAY Display = { gameScreenDrawn: false, pauseMenuDraw: false};
 
+struct CACHE {
+  int hitCounter;
+  float getActiveComboMult;
+  int score;
+  bool spinnerActive;
+  int tempLife; 
+  int getSecond;
+};
+
+CACHE Cache = { hitCounter: -1, getActiveComboMult: -1, score: -1, spinnerActive: false, tempLife: -1, getSecond: -1 };
+
+#define START_POINT_EEPROM_SCOREBOARD PROFILE_SIZE*PROFILES+PROFILE_SIZE
+
 int pauseMenuDraw = 0;
 
 String formattedTime() {
+  Cache.getSecond = getSecond();
   return getMinutes() == 0 ? String(getSecond())+"\"" : String(getMinutes())+"'"+String(getSecond())+"\"";
 }
 
@@ -136,6 +154,16 @@ void setupPin() {
   //PIN OUTPUT -- SCRITTURA
   pinMode(PIN_GIRELLA, OUTPUT);
   pinMode(PIN_SPINTA, OUTPUT);
+}
+
+// Reset Cache
+void resetCache() {
+  Cache.hitCounter = -1;
+  Cache.getActiveComboMult = -1;
+  Cache.score = -1;
+  Cache.spinnerActive = false;
+  Cache.tempLife = -1;
+  Cache.getSecond = -1;
 }
 
 // ||--!! METODI SENSORI !!--||
@@ -187,7 +215,7 @@ void updateGameScreen(int screenArea, int caseToSkip = -1) {
     updateGameScreen(MULT_NUM, caseToSkip);
     updateGameScreen(SCORE_NUM, caseToSkip);
     updateGameScreen(SPINNER_STATE, caseToSkip);
-    updateGameScreen(TIME_NUM, caseToSkip);
+    // updateGameScreen(TIME_NUM, caseToSkip);
     updateGameScreen(LIFE_NUM, caseToSkip);
     return;
   }
@@ -197,42 +225,48 @@ void updateGameScreen(int screenArea, int caseToSkip = -1) {
 
   switch (screenArea) {
     case HIT_NUM:
-      if (caseToSkip != HIT_NUM) {
+      if (Game.hitCounter != Cache.hitCounter) {
+        Serial.println("hit counter call");
+        Serial.println(Game.hitCounter);
+        Serial.println(Cache.hitCounter);
         my_lcd.Fill_Rectangle(312, 90, 488, 185);
         my_lcd.Set_Text_Size(12); // HIT NUM
         my_lcd.Print_String(String(Game.hitCounter), CENTER, 100);
       }
       break;
     case MULT_NUM:
-      if (caseToSkip != MULT_NUM) {
+      if (getActiveComboMult() != Cache.getActiveComboMult) {
+        // Serial.println("ti sto chiamando");
+        // Serial.println(getActiveComboMult());
+        // Serial.println(Cache.getActiveComboMult);
         my_lcd.Fill_Rectangle(312, 383, 488, 436);
         my_lcd.Set_Text_Size(7); // MULT NUM
         my_lcd.Print_String(String(getActiveComboMult()), CENTER, 387);
       }
       break;
     case SCORE_NUM:
-      if (caseToSkip != SCORE_NUM) {
+      if (Game.score != Cache.score) {
         my_lcd.Fill_Rectangle(496, 116, 781, 158);
         my_lcd.Set_Text_Size(3); // SCORE NUM
         my_lcd.Print_String(String(Game.score), getScoreXPosition(Game.score), 125);
       }
       break;
     case SPINNER_STATE:
-      if (caseToSkip != SPINNER_STATE) {
+      if (Game.spinnerActive != Cache.spinnerActive) {
         my_lcd.Fill_Rectangle(496, 216, 781, 258);
         my_lcd.Set_Text_Size(3); // SPINNER STATE
         my_lcd.Print_String(Game.spinnerActive ? "ACTIVE" : "UNACTIVE", 615, 225);
       }
       break;
     case TIME_NUM:
-      if (caseToSkip != TIME_NUM && Game.life > 0) {
+      if (Game.life > 0 && getSecond() != Cache.getSecond) {
         my_lcd.Fill_Rectangle(496, 316, 781, 358);
         my_lcd.Set_Text_Size(3); // TIME NUM
         my_lcd.Print_String(formattedTime(), 680, 325);
       }
       break;
     case LIFE_NUM:
-      if (caseToSkip != LIFE_NUM) {
+      if (Game.tempLife != Cache.tempLife) {
         my_lcd.Fill_Rectangle(518, 4, 535, 57);
         my_lcd.Set_Text_Size(3); // LIFE NUM
         Serial.println(Game.tempLife);
@@ -329,6 +363,7 @@ int getActiveComboHit() {
 // ||--!! METODI STRUCT GAME !!--||
 void upHitCounter() {
   Game.lastSensorConsecutiveHit += 1; //Ho colpito comunque un sensore, quindi lo aumento
+  Cache.hitCounter = Game.hitCounter;
   Game.hitCounter += 1; //Aumento il counter generale
   Game.comboHitCounter += 1;
 }
@@ -360,6 +395,7 @@ void assignScore(int pinActivated) {
   }
   
   if (pinActivated != DEACTIVATED) {
+    Cache.spinnerActive = Game.spinnerActive;
     Game.spinnerActive = true;
     if(Game.startTime == -1 && pinActivated != START) {
         Game.startTime = millis();
@@ -440,7 +476,7 @@ void assignScore(int pinActivated) {
       }
   } else {
     comboActivator(0, true); //Annullo tutte le combo
-    Game.hitCounter = 0;
+    Game.hitCounter = Cache.hitCounter = 0;
     Game.comboHitCounter = 0;
     Game.lastSensorHit = 0;
     Game.lastComboHitTime = 0;
@@ -449,6 +485,7 @@ void assignScore(int pinActivated) {
 
   //Se devo calcolare lo score, eseguo il calcolo
   if (calculateScore) {
+    Cache.score = Game.score;
     Game.score += (baseScore*getActiveComboMult()); //Aggiungo il punteggio per il sensore colpito insieme al moltiplicatore
     updateGameScreen(4);
     updateGameScreen(1);
@@ -475,7 +512,7 @@ void manageGameStatus() {
         Game.tempLife -= 1; //Ho perso una vita
         Game.lastLifeScore = Game.score; //Aggiorno il punteggio dell'ultima vita  
         Game.lastUpdatedScore = Game.score; //Segno l'ultimo score fatto da quando ho perso una vita
-        Game.hitCounter = 0; //Azzero l'hit counter perchè ho perso una vita
+        Game.hitCounter = Cache.hitCounter =  0; //Azzero l'hit counter perchè ho perso una vita
         Game.comboHitCounter = 0; 
         Game.lastSensorHit = 0; //Azzero l'ultimo sensore colpito perchè sono in posizione di partenza
         Game.lastSensorHitTime = millis()+10000; //Segnalo che ho perso una vita e devo azzerare i counter
@@ -489,6 +526,7 @@ void manageGameStatus() {
       }
       //Se ho finito le vite
       if(Game.tempLife == 0) {
+        resetCache();
         Game.inGame = false; // Hai perso la partita
         Game.lastLifeScore = 0; //Azzero il punteggio dell'ultima vita  
         Serial.print(" !!! HAI PERSO!! Il tuo score: ");  
@@ -501,14 +539,12 @@ void manageGameStatus() {
         Game.startTime = -1;
         saveHighScore(Game.score); //Salvo se ho ottenuto il punteggio record
         updateScoreBoard(); //Aggiorno la ScoreBoard
-        scoreBoardSort();
-        printScoreBoard(); //Stampo la ScoreBoard
         Serial.println("Entro da GAME STATUS LIFE 0");
-        updateGameScreen(10);
+        // updateGameScreen(10);
         Game.lastUpdatedScore = 0;
         Game.score = 0;
         Display.gameScreenDrawn = false;
-        pauseMenuDraw = 0;
+        Display.pauseMenuDraw = false;
         Game.tempLife = Game.life;
         my_lcd.Fill_Screen(BG_COLOR);
       }
@@ -696,7 +732,7 @@ int findEmptyBlock() {
 }
 void saveHighScore(int score) {
   
-  if(Flipper.activeProfile.highScore < score) {
+  if(score > Flipper.activeProfile.highScore) {
     EEPROM.get(Flipper.activeProfile.eepromPos, StoredProfile);
     StoredProfile.highScore = score;
     EEPROM.put(Flipper.activeProfile.eepromPos, StoredProfile);
@@ -729,6 +765,9 @@ void debugEEPROM() {
     Serial.print(" / HighScore: ");
     Serial.println(StoredProfile.highScore);
   }
+
+  // printScoreBoard();
+  
 }
 //Azzera i valori della EEPROM e assegna dei PROFILE "blankProfile"
 void flushEEPROM() {
@@ -743,10 +782,25 @@ void flushEEPROM() {
   }
 }
 
+//Azzera i valori della EEPROM e assegna dei PROFILE "blankProfile"
+void customFlushEEPROM(int customData) {
+  for (int i = customData; i < EEPROM.length(); i++) {
+    EEPROM.write(i, 0);    
+  }
+  for (int i = 0; i <= PROFILE_SIZE*PROFILES; i+=10) {
+    blankProfile.eepromPos = i;
+    if (i==0)
+      EEPROM.put(i, blankProfile);
+    EEPROM.put(i, blankProfile);
+  }
+}
+
 //Stampa la ScoreBoard
 void printScoreBoard() {
-  for(SCOREBOARD scoreB : Scoreboard) {
-    Serial.println(scoreB.name);
+  EEPROM.get(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
+  for(SCOREBOARD scoreB : StoredScoreboard) {
+    Serial.println(String(scoreB.name));
+    Serial.println(scoreB.score);
   }
 }
 
@@ -761,7 +815,8 @@ void updateGameTimeDraw() {
 // ||--!! METODI LOOP !!--||
 //Loop di gioco
 void gameLoop(int tempTotal) {
-
+  Cache.getActiveComboMult = getActiveComboMult();
+  Cache.tempLife = Game.tempLife;
   int pinActive = 0;
   //Gestisco il sensore di MOLLA
   Flipper.molla = digitalRead(PIN_MOLLE);
@@ -814,6 +869,7 @@ void mainMenu() {
     case 1: 
       if (Flipper.activeProfile.profileActive == 1) {
         Game.tempLife = Game.life;
+        // Game.score = 123; // debug
         Game.inGame = true;
         Serial.print("///== GIOCATORE: ");
         Serial.print(Flipper.activeProfile.name);
@@ -822,8 +878,12 @@ void mainMenu() {
         Serial.println("!!! NESSUN PROFILO ATTIVO !!!");
       break;              
     case 2: selectProfile(); break;
-    case 3: newProfile(); break; 
-    case 4: printScoreBoard(); break;
+    case 3:
+      updateScoreBoard();
+      printScoreBoard(); 
+      drawScoreBoardScreen();
+      break; 
+    case 4: break;
     default: break;    
   }
 }
@@ -838,24 +898,54 @@ int compare_two_events(SCOREBOARD *a, SCOREBOARD *b) {
     return 0;
 }
 void scoreBoardSort() {
-  qsort(Scoreboard, 10, sizeof(SCOREBOARD), compare_two_events);
+  qsort(StoredScoreboard, 11, sizeof(SCOREBOARD), compare_two_events);
 }
-//Aggiorna la ScoreBoard
-void updateScoreBoard() {
-  Serial.println("Aggiorno la scoreboard");
-  for(SCOREBOARD scoreB : Scoreboard) {
-    //insert(&Scoreboard[i], scoreB.name, scoreB.score);
+
+void drawScoreBoardScreen() {
+    
+  my_lcd.Fill_Screen(BG_COLOR);
+
+  int j = 1;
+  int mT = 35;
+  EEPROM.get(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
+  for(int i = 10; i > 0; i--){
+    my_lcd.Set_Text_colour(255, 255, 255);
+    my_lcd.Set_Text_Size(4); // moltiplicatore di font size
+    my_lcd.Set_Text_Mode(1); // mode > 0 : senza sfondo
+    my_lcd.Print_String(StoredScoreboard[i].name, LEFT, mT*j); // stringa, posizione, margin-top
+    my_lcd.Print_String(String(StoredScoreboard[i].score), RIGHT, mT*j); // stringa, posizione, margin-top
+    j++;
   }
 }
 
-//Inizializza la ScoreBoard
+//Aggiorna la ScoreBoard
+void updateScoreBoard() {
+  Serial.println("Aggiorno la scoreboard");
+
+  EEPROM.get(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
+  
+  insert(&StoredScoreboard[0], Flipper.activeProfile.name, Game.score);
+  Serial.println("Nome di ora");
+  Serial.println(Flipper.activeProfile.name);
+  scoreBoardSort();
+  EEPROM.put(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
+}
+
+// eeprom score board init
+void initializeScoreBoardEEPROM() {
+  for(int i = 0; i < 11; i++){
+    insert(&Scoreboard[i], "AAA", 1);
+    EEPROM.put(START_POINT_EEPROM_SCOREBOARD, Scoreboard);
+    EEPROM.get(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
+  }
+}
+
+//Inizializza la ScoreBoard locale
 void initializeScoreBoard() {
-  for (int i = 0; i < 10; i++) {
+  for (int i = 1; i < 11; i++) {
     EEPROM.get((i*PROFILE_SIZE), StoredProfile);
     insert(&Scoreboard[i], StoredProfile.name, StoredProfile.highScore);
-  } 
-  scoreBoardSort();
-  updateScoreBoard();
+  }
 }
 //Azzera la ScoreBoard
 void flushScoreBoard() {
@@ -1057,12 +1147,13 @@ void setup() {
   Serial.begin(9600);
   delay(3000);
   setupPin();
-
-  //loadDefaultProfile(); //Carica il DefaultProfile nella EEPROM
-  //newProfile();
-  //flushEEPROM();
-  //debugEEPROM();
-  initializeScoreBoard();
+  // loadDefaultProfile(); //Carica il DefaultProfile nella EEPROM
+  // newProfile();
+  // flushEEPROM();
+  // customFlushEEPROM(120);
+  // debugEEPROM();
+  //initializeScoreBoard();
+  // initializeScoreBoardEEPROM();
   Serial.flush();
   
   //Spengo subito il pin di SPINTA
@@ -1115,23 +1206,44 @@ boolean is_pressed(int16_t y1,int16_t x1,int16_t y2,int16_t x2,int16_t px,int16_
       Serial.println("true");
       return true;  
   } else {
-    // Serial.println("false");
+      // Serial.println("false");
       return false;  
   }
 }
 int managerTouchScreen() {
   int16_t px = 0;
   int16_t py = 0;
+  int buttonDim = 100;
+  int widthScreen = 799;
+  int heightScren = 479;
+  int space = 10;
   my_touch.TP_Scan(0);
+
   if (my_touch.TP_Get_State()&TP_PRES_DOWN) {
     px = my_touch.x;
     py = my_touch.y;
-    Serial.println(px);
-    Serial.println(py);
   } 
-  if(is_pressed(799-(188+(20*5)), 479-(313+(20*5)), 799-188, 479-313, px, py)){
+  // y1 = origine, x1 = origine, y2 = fine, x2 = fine 
+  // dal nostro punto di vista, si va da dx a sx per le y (da 0 a 799) 
+  // dal basso all'alto per le x (da 0 a 479)
+
+  if(is_pressed(widthScreen-(188+(buttonDim)), heightScren-(313+(buttonDim)), widthScreen-188, heightScren-313, px, py)){ // play button
     return 1;
   }
+
+  if(is_pressed(799-(188+(space)+(buttonDim*2)), 479-(313+(buttonDim)), 799-(188+buttonDim*2)+(space), 479-313, px, py)){ // user button
+    return 2;
+  }
+
+  if(is_pressed(799-(188+(space*2)+(buttonDim*3)), 479-(313+(buttonDim)), 799-(188+buttonDim*3)+(space*2), 479-313, px, py)){ // score button
+    return 3;
+  }
+
+  if(is_pressed(799-(188+(space*3)+(buttonDim*4)), 479-(313+(buttonDim)), 799-(188+buttonDim*4)+(space*3), 479-313, px, py)){ // score button
+    return 4;
+  }
+
+
   return -1;
 }
 
@@ -1155,8 +1267,8 @@ void loop() {
     }
     int tempTotal = Game.score;
     gameLoop(tempTotal);
-    manageGameStatus();
     updateGameTimeDraw();
+    manageGameStatus();
   }
   delay(1);
 }
