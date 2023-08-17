@@ -159,6 +159,66 @@ void gameScreenPrintMessage(String message, int size, int color[3], unsigned lon
   }
 }
 
+void drawUserScreen() {
+  Display.screenNotTouched = true;
+
+  my_lcd.Fill_Screen(BG_COLOR);
+  // PROFILE rectangle
+  my_lcd.Set_Draw_color(50, 50, 50);
+  my_lcd.Fill_Rectangle(239, 40, 799, 95);  
+  my_lcd.Fill_Rectangle(0, 120, 799, 410);
+
+  drawBackButton(60, 380, 160, 430, 75, 395);
+
+  writeTextLCD(255, 255, 255, 5, "USER PROFILES", 0, 260, 51);
+
+  int const dim = (PROFILE_SIZE*PROFILES)-10;
+
+  my_lcd.Set_Draw_color(255, 255, 255);
+
+  int xStartRect = 110;
+  int xStartText = 127;
+  int yStartRect = 140;
+  int yStartText = 180;
+  int rectSize = 100;
+  int rectMult = 0;
+  int margin = 20;
+  for (int adrs = 10; adrs <= dim; adrs+=PROFILE_SIZE) {
+
+    // Disegno i rettangoli
+    my_lcd.Draw_Rectangle(xStartRect, yStartRect, xStartRect+rectSize, yStartRect+rectSize);
+    // Scrivo il testo
+    writeTextLCD(255, 255, 255, 4, String(EEPROM.get(adrs, StoredProfile).name), 0, xStartText, yStartText);
+    rectMult++;
+
+    if (rectMult != 0) {
+      xStartRect = 110+(rectSize*rectMult)+(margin*rectMult);
+      xStartText = 130+(rectSize*rectMult)+(margin*rectMult);
+      }
+    if (rectMult == 5) {
+      yStartRect = 260;
+      yStartText = 280;
+      xStartRect = 110;
+      xStartText = 127;
+      rectMult = 0;
+    }
+
+    // if(EEPROM.get(adrs, StoredProfile).profileActive != 255) {
+    //   Serial.print(adrs/PROFILE_SIZE+1);
+    //   Serial.print(". ");
+    //   if (StoredProfile.profileActive == 1)
+    //     Serial.print("ATTIVO: ");
+    //   Serial.println(StoredProfile.name);
+    // }
+  }
+
+  while (Display.screenNotTouched) {
+    if (managerTouchScreen() == 100) backToMenu();
+    // if (managerTouchScreen() == 5) drawScoreBoardScreen(!scroll);    
+  }
+
+}
+
 void changeCurrentScreen(int selectedScreen){
   Display.currentScreen = selectedScreen;
   switch(selectedScreen){
@@ -172,6 +232,7 @@ void changeCurrentScreen(int selectedScreen){
       break;
     case 20:
       // user menu
+      drawUserScreen();
       break;
     case 30:
       // scoreboard
@@ -957,7 +1018,11 @@ void mainMenu() {
           Serial.println("!!! NESSUN PROFILO ATTIVO !!!");
           Display.screenNotTouched = false;
         break;              
-      case 2: selectProfile(); Display.screenNotTouched = false; break;
+      case 2: 
+        // selectProfile(); 
+        changeCurrentScreen(20);
+        Display.screenNotTouched = false; 
+        break;
       case 3:
         updateScoreBoard();
         // printScoreBoard(); 
@@ -986,45 +1051,56 @@ void getScoreboard() {
   EEPROM.get(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
 }
 
+void drawScrollButton(int direction = 0) {
+  my_lcd.Set_Draw_color(255, 255, 255);
+  my_lcd.Fill_Rectangle(680, 395, 720, 435);
+  my_lcd.Set_Draw_color(BG_COLOR);
+  if(direction){ // up
+    my_lcd.Fill_Triangle(685, 429, 715, 429, 700, 399);
+  } else { // down
+    my_lcd.Fill_Triangle(685, 402, 715, 402, 700, 432);
+  }
+}
+
 void drawScoreBoardScreen(int scroll) {
   Display.screenNotTouched = true;  
-  my_lcd.Fill_Screen(BG_COLOR);
 
   EEPROM.get(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
   
   // backMenu(88, 313, 288, 413, 102, 280);
 
   if(scroll == -1){
+    my_lcd.Fill_Screen(BG_COLOR);
     drawCheckeredFlag(10, 5, 23, true, 60, 39);
     drawCheckeredFlag(10, 5, 23, true, 510, 39);
     my_lcd.Set_Draw_color(230, 200, 0);
     // riga scoreboard info
     my_lcd.Fill_Rectangle(740, 110, 60, 150);
     // righe grigie
-    my_lcd.Set_Draw_color(180, 180, 180);
-    my_lcd.Fill_Rectangle(480, 221, 482, 440);
-    my_lcd.Fill_Rectangle(322, 221, 324, 440);
+    // my_lcd.Set_Draw_color(180, 180, 180);
+    // my_lcd.Fill_Rectangle(480, 221, 482, 440);
+    // my_lcd.Fill_Rectangle(322, 221, 324, 440);
 
     my_lcd.Set_Text_colour(0, 0, 0);
     my_lcd.Set_Text_Size(4); // moltiplicatore di font size
     my_lcd.Set_Text_Mode(1); // mode > 0 : senza sfondo
     my_lcd.Print_String("SCOREBOARD", CENTER, 115); // stringa, posizione, margin-top
+    drawScrollButton();
     // classifica quando ci sta il giallo
     listScoreboard(10);
+    drawBackButton(60, 380, 160, 430, 75, 395);
+    scroll = 0;
   } else if(scroll == 0){
+    drawScrollButton();
     listScoreboard(10);
   } else {
+    drawScrollButton(1);
     listScoreboard(5);
   }
-
-  backMenuButton(60, 380, 160, 430, 75, 395);
   
   while (Display.screenNotTouched) {
-    if (managerTouchScreen()==5){ 
-      Display.screenNotTouched = false;
-      changeCurrentScreen(0);
-      mainMenu();
-    }
+    if (managerTouchScreen() == 100) backToMenu();
+    if (managerTouchScreen() == 5) drawScoreBoardScreen(!scroll);    
   }
 
 }
@@ -1033,10 +1109,14 @@ void listScoreboard(int value){
   int j = 1;
   int mT = 55;
   int yPos = 180;
+  // CLEAR
+  my_lcd.Set_Draw_color(BG_COLOR);
+  my_lcd.Fill_Rectangle(650, 160, 160, 440);
   my_lcd.Set_Draw_color(230, 200, 0);
   if(value == 10) my_lcd.Fill_Rectangle(640, 170, 160, 220);
   for(int i = value; i > value-5; i--){
       i == 10 ? my_lcd.Set_Text_colour(0, 0, 0) : my_lcd.Set_Text_colour(255, 255, 255);
+      if(i == 1) my_lcd.Set_Text_colour(245, 10, 80);
       my_lcd.Set_Text_Size(4); // moltiplicatore di font size
       my_lcd.Set_Text_Mode(1); // mode > 0 : senza sfondo
       my_lcd.Print_String(String(value == 5 ? j+5 : j)+".", 220, yPos); // stringa, posizione, margin-top
@@ -1303,10 +1383,16 @@ void setup() {
   checkProfile();
 }
 
-void backMenuButton(int x1, int y1, int x2, int y2, int xStart, int yStart) {
+void drawBackButton(int x1, int y1, int x2, int y2, int xStart, int yStart) {
   my_lcd.Set_Draw_color(60,80,180);
   my_lcd.Fill_Rectangle(x1, y1, x2, y2);
   writeTextLCD(255,255, 255, 3, "BACK", -1, xStart, yStart);
+}
+
+void backToMenu() {
+  Display.screenNotTouched = false;
+  changeCurrentScreen(0);
+  mainMenu();
 }
 
 void drawMainMenu() {
@@ -1382,9 +1468,13 @@ int managerTouchScreen() {
   if(is_pressed(799-(188+(space*3)+(buttonDim*4)), 479-(313+(buttonDim)), 799-(188+buttonDim*4)+(space*3), 479-313, px, py)){ // score button
     return 4;
   }
-  // backMenuButton(60, 380, 160, 430, 75, 395);
-  if(is_pressed(640, 50, 740, 90, px, py)){ // back button
+  
+  if(is_pressed(80, 50, 120, 90, px, py)){ // scroll scoreboard button
     return 5;
+  }
+
+  if(is_pressed(640, 50, 740, 90, px, py)){ // back button
+    return 100;
   }
 
   return -1;
