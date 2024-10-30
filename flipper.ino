@@ -177,46 +177,73 @@ void drawUserScreen() {
   my_lcd.Set_Draw_color(255, 255, 255);
 
   int xStartRect = 110;
-  int xStartText = 127;
+  int xStartText = 120;
   int yStartRect = 140;
-  int yStartText = 180;
+  int yStartText = 175;
   int rectSize = 100;
   int rectMult = 0;
   int margin = 20;
+  // generate user square
   for (int adrs = 10; adrs <= dim; adrs+=PROFILE_SIZE) {
+    // richiamo la StoredProfile
+    EEPROM.get(adrs, StoredProfile);
 
-    // Disegno i rettangoli
-    my_lcd.Draw_Rectangle(xStartRect, yStartRect, xStartRect+rectSize, yStartRect+rectSize);
-    // Scrivo il testo
-    writeTextLCD(255, 255, 255, 4, String(EEPROM.get(adrs, StoredProfile).name), 0, xStartText, yStartText);
+    if(StoredProfile.profileActive != 255 ){
+      if(StoredProfile.profileActive == 1){
+        my_lcd.Set_Draw_color(30, 30, 30);
+        // Disegno rettangolo selezionato
+        my_lcd.Fill_Rectangle(xStartRect, yStartRect, xStartRect+rectSize, yStartRect+rectSize);
+        writeTextLCD(70, 70 , 70, 5, String(StoredProfile.name), 0, xStartText, yStartText);
+      } else {
+        my_lcd.Set_Draw_color(255, 255, 255);
+        // Disegno i rettangoli
+        my_lcd.Fill_Rectangle(xStartRect, yStartRect, xStartRect+rectSize, yStartRect+rectSize);
+        // Scrivo il testo
+        writeTextLCD(30, 30, 30, 5, String(StoredProfile.name), 0, xStartText, yStartText); 
+      }
+    } else {
+      my_lcd.Set_Draw_color(10, 140, 80);
+      my_lcd.Fill_Rectangle(xStartRect, yStartRect, xStartRect+rectSize, yStartRect+rectSize);
+      writeTextLCD(255, 255, 255, 5, " + ", 0, xStartText, yStartText); 
+    }
     rectMult++;
 
     if (rectMult != 0) {
       xStartRect = 110+(rectSize*rectMult)+(margin*rectMult);
-      xStartText = 130+(rectSize*rectMult)+(margin*rectMult);
-      }
+      xStartText = 120+(rectSize*rectMult)+(margin*rectMult);
+    }
     if (rectMult == 5) {
       yStartRect = 260;
-      yStartText = 280;
+      yStartText = 295;
       xStartRect = 110;
-      xStartText = 127;
+      xStartText = 120;
       rectMult = 0;
     }
 
-    // if(EEPROM.get(adrs, StoredProfile).profileActive != 255) {
-    //   Serial.print(adrs/PROFILE_SIZE+1);
-    //   Serial.print(". ");
-    //   if (StoredProfile.profileActive == 1)
-    //     Serial.print("ATTIVO: ");
-    //   Serial.println(StoredProfile.name);
-    // }
   }
 
   while (Display.screenNotTouched) {
-    if (managerTouchScreen() == 100) backToMenu();
-    // if (managerTouchScreen() == 5) drawScoreBoardScreen(!scroll);    
+    Serial.println("while");
+    int profileChoice;
+    int backCoordinate = 100;
+    profileChoice = managerTouchScreen();
+    if (profileChoice == backCoordinate) return backToMenu();
+    if (profileChoice > 0 && profileChoice != backCoordinate) { 
+      EEPROM.get(profileChoice, StoredProfile);
+      if (StoredProfile.profileActive == 0) {
+        Serial.println("Profile Choice: ");
+        Serial.println(profileChoice);
+        resetProfileActive();
+        EEPROM.get(profileChoice, StoredProfile);
+        StoredProfile.profileActive = 1;
+        EEPROM.put(profileChoice, StoredProfile);
+        Flipper.activeProfile = StoredProfile;
+      }
+      Display.screenNotTouched = false;
+      drawUserScreen();
+    } 
+   
   }
-
 }
 
 void changeCurrentScreen(int selectedScreen){
@@ -387,8 +414,15 @@ void updateGameScreen(int screenArea, int caseToSkip = -1) {
         my_lcd.Fill_Rect(30, 123, 270, 23, BG_COLOR);
         my_lcd.Set_Text_colour(255, 255, 255);
         my_lcd.Set_Text_Size(3);
-        my_lcd.Print_String(String(10-Game.tempScorePos) + " " +  String(StoredScoreboard[Game.tempScorePos+1].name), 30, 125); 
-        my_lcd.Print_String("-" + String(Game.scoreGap) , getScoreXPosition(Game.scoreGap, 540), 125);
+        
+        // int firstScoreboardPlace = 10;
+        // if(Game.tempScorePos < firstScoreboardPlace){
+          my_lcd.Print_String(String(10-Game.tempScorePos) + " " +  String(StoredScoreboard[Game.tempScorePos+1].name), 30, 125); 
+          my_lcd.Print_String("-" + String(Game.scoreGap) , getScoreXPosition(Game.scoreGap, 540), 125);
+        // } else {
+        //   my_lcd.Print_String(String(2) + " " +  String(StoredScoreboard[9].name), 30, 125); 
+        //   my_lcd.Print_String("+" + String(Game.scoreGap) , getScoreXPosition(Game.scoreGap, 540), 125);
+        // }
       }
       
     default:
@@ -397,6 +431,7 @@ void updateGameScreen(int screenArea, int caseToSkip = -1) {
 }
 
 void calculateScoreGap() {
+  // int result = Game.tempScorePos > 9 ? Game.score - StoredScoreboard[9].score : StoredScoreboard[(Game.tempScorePos+1)].score - Game.score;
   int result = StoredScoreboard[(Game.tempScorePos+1)].score - Game.score;
   if(result > 0){
     Game.scoreGap = StoredScoreboard[(Game.tempScorePos+1)].score - Game.score;    
@@ -1005,6 +1040,8 @@ void mainMenu() {
 
     switch(choice) {
       case 1: 
+
+        Serial.println("entro nel gioco");
         if (Flipper.activeProfile.profileActive == 1) {
           Game.tempLife = Game.life;
           // Game.score = 123; // debug
@@ -1019,9 +1056,10 @@ void mainMenu() {
           Display.screenNotTouched = false;
         break;              
       case 2: 
+        Serial.println("entro nel select");
         // selectProfile(); 
         changeCurrentScreen(20);
-        Display.screenNotTouched = false; 
+        // Display.screenNotTouched = false; 
         break;
       case 3:
         updateScoreBoard();
@@ -1240,11 +1278,11 @@ void drawGameScreen(void){
   // GAP TEXT
   my_lcd.Set_Text_colour(0, 0, 0);
   my_lcd.Set_Text_Size(4); 
-  my_lcd.Print_String("GAP TO NEXT", 30, 74);
+  my_lcd.Print_String("GAP", 30, 74);
   
   Display.gameScreenDrawn = true;
 }
-
+// disegna quadrati bianchi e neri
 void drawCheckeredFlag (int sizePx, int h, int w, bool firstFill, int xStart, int yStart) {
   
   my_lcd.Set_Draw_color(255,255,255);
@@ -1364,7 +1402,7 @@ void setup() {
   // flushEEPROM();
   // customFlushEEPROM(120);
   // debugEEPROM();
-  //initializeScoreBoard();
+  // initializeScoreBoard();
   // initializeScoreBoardEEPROM();
   Serial.flush();
   
@@ -1429,13 +1467,14 @@ void drawMainMenu() {
 
 boolean is_pressed(int16_t y1,int16_t x1,int16_t y2,int16_t x2,int16_t px,int16_t py) {
   if((px > x1 && px < x2) && (py > y1 && py < y2)) {
-      Serial.println("true");
+      // Serial.println("true");
       return true;  
   } else {
       // Serial.println("false");
       return false;  
   }
 }
+
 int managerTouchScreen() {
   int16_t px = 0;
   int16_t py = 0;
@@ -1452,29 +1491,67 @@ int managerTouchScreen() {
   // y1 = origine, x1 = origine, y2 = fine, x2 = fine 
   // dal nostro punto di vista, si va da dx a sx per le y (da 0 a 799) 
   // dal basso all'alto per le x (da 0 a 479)
+  // MAIN MENU SCREEN
+  if(Display.currentScreen == 0) {
+    if(is_pressed(widthScreen-(188+(buttonDim)), heightScren-(313+(buttonDim)), widthScreen-188, heightScren-313, px, py)){ // play button
+      return 1;
+    }
+    
+    if(is_pressed(799-(188+(space)+(buttonDim*2)), 479-(313+(buttonDim)), 799-(188+buttonDim*2)+(space), 479-313, px, py)){ // user button
+      return 2;
+    }
 
-  if(is_pressed(widthScreen-(188+(buttonDim)), heightScren-(313+(buttonDim)), widthScreen-188, heightScren-313, px, py)){ // play button
-    return 1;
-  }
+    if(is_pressed(799-(188+(space*2)+(buttonDim*3)), 479-(313+(buttonDim)), 799-(188+buttonDim*3)+(space*2), 479-313, px, py)){ // score button
+      return 3;
+    }
 
-  if(is_pressed(799-(188+(space)+(buttonDim*2)), 479-(313+(buttonDim)), 799-(188+buttonDim*2)+(space), 479-313, px, py)){ // user button
-    return 2;
+    if(is_pressed(799-(188+(space*3)+(buttonDim*4)), 479-(313+(buttonDim)), 799-(188+buttonDim*4)+(space*3), 479-313, px, py)){ // score button
+      return 4;
+    }
   }
-
-  if(is_pressed(799-(188+(space*2)+(buttonDim*3)), 479-(313+(buttonDim)), 799-(188+buttonDim*3)+(space*2), 479-313, px, py)){ // score button
-    return 3;
-  }
-
-  if(is_pressed(799-(188+(space*3)+(buttonDim*4)), 479-(313+(buttonDim)), 799-(188+buttonDim*4)+(space*3), 479-313, px, py)){ // score button
-    return 4;
-  }
-  
-  if(is_pressed(80, 50, 120, 90, px, py)){ // scroll scoreboard button
-    return 5;
+  // SCOREBOARD SCREEN
+  if(Display.currentScreen == 30) {
+    if(is_pressed(80, 50, 120, 90, px, py)){ // scroll scoreboard button
+      return 5;
+    }
   }
 
   if(is_pressed(640, 50, 740, 90, px, py)){ // back button
     return 100;
+  }
+
+  // USER PROFILE SCREEN
+  if(Display.currentScreen == 20) {  
+    if(is_pressed(590, 240, 690, 330, px, py)){ // user: 10
+      return 10;
+    }  
+    if(is_pressed(450, 240, 570, 330, px, py)){ // user: 20
+      return 20;
+    }
+    if(is_pressed(320, 240, 450, 330, px, py)){ // user: 30
+      return 30;
+    }
+    if(is_pressed(200, 240, 330, 330, px, py)){ // user: 40
+      return 40;
+    }
+    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 50
+      return 50;
+    }
+    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 60
+      return 60;
+    }
+    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 70
+      return 70;
+    }
+    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 80
+      return 80;
+    }
+    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 90
+      return 90;
+    }
+    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 100
+      return 100;
+    }
   }
 
   return -1;
@@ -1483,7 +1560,6 @@ int managerTouchScreen() {
 void loop() {
 
   // Game.inGame = true;
-
   if (!Game.inGame) {  
     if(!Display.pauseMenuDraw){
       changeCurrentScreen(0);
