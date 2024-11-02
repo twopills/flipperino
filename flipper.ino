@@ -1,9 +1,7 @@
 //@TODO
 /*
 
-  - EEPROM --> Assegnazione PUNTEGGI
-  - EEPROM --> Stampa PUNTEGGI al termine della partita
-  - EEPROM --> Gestione CLASSIFICA PUNTEGGI
+  - RAGA REFACTOR YUPPI
 
 */
 #include <LCDWIKI_GUI.h> //Core graphics library
@@ -32,6 +30,10 @@
 #define PIN_GIRELLA 13
 #define PIN_SPINTA 12
 #define PROFILES 11
+#include <avr/io.h>
+#include <avr/wdt.h>
+
+#define Reset_AVR() wdt_enable(WDTO_30MS); while(1) {}
 
 LCDWIKI_KBV my_lcd(NT35510,40,38,39,43,41); //model,cs,cd,wr,rd,reset
 LCDWIKI_TOUCH my_touch(53,52,50,51,44); //tcs,tclk,tdout,tdin,tirq
@@ -223,27 +225,303 @@ void drawUserScreen() {
   }
 
   while (Display.screenNotTouched) {
-    Serial.println("while");
-    int profileChoice;
+    int choiceProfile;
     int backCoordinate = 100;
-    profileChoice = managerTouchScreen();
-    if (profileChoice == backCoordinate) return backToMenu();
-    if (profileChoice > 0 && profileChoice != backCoordinate) { 
-      EEPROM.get(profileChoice, StoredProfile);
-      if (StoredProfile.profileActive == 0) {
-        Serial.println("Profile Choice: ");
-        Serial.println(profileChoice);
-        resetProfileActive();
-        EEPROM.get(profileChoice, StoredProfile);
-        StoredProfile.profileActive = 1;
-        EEPROM.put(profileChoice, StoredProfile);
-        Flipper.activeProfile = StoredProfile;
+    choiceProfile = managerTouchScreen();
+    if (choiceProfile == backCoordinate) return backToMenu();
+    if (choiceProfile > 0 && choiceProfile != backCoordinate) { 
+      EEPROM.get(choiceProfile, StoredProfile);
+      if(Flipper.activeProfile.eepromPos != choiceProfile) {
+        if (StoredProfile.profileActive == 0) {
+          resetProfileActive();
+          EEPROM.get(choiceProfile, StoredProfile);
+          StoredProfile.profileActive = 1;
+          EEPROM.put(choiceProfile, StoredProfile);
+          Flipper.activeProfile = StoredProfile;
+          drawUserScreen();
+        } else {
+          drawNewUserScreen(choiceProfile);
+       }
+        Display.screenNotTouched = false;
       }
-      Display.screenNotTouched = false;
-      drawUserScreen();
+      if(Flipper.activeProfile.eepromPos == choiceProfile) {
+        drawUserInfo();
+        Display.screenNotTouched = false;
+      }
+      
+      
     } 
    
   }
+}
+
+void drawNewUserScreen(int choiceProfile) {
+    Display.screenNotTouched = true;
+    
+    // Array per tenere traccia dei caratteri selezionati (codici ASCII, A=65, Z=90)
+    int selectedChars[3] = {65, 65, 65}; // Inizializza con 'A'
+
+    // Pulisci lo schermo
+    my_lcd.Fill_Screen(BG_COLOR);
+
+    // Disegna il pulsante Back (coordinate da verificare)
+    if(choiceProfile != 255) {
+     drawBackButton(60, 380, 160, 430, 75, 395); 
+    }
+
+    // Disegna il pulsante Save
+    my_lcd.Set_Draw_color(40, 220, 80);
+    my_lcd.Fill_Rectangle(600, 380, 700, 430);
+    writeTextLCD(255, 255, 255, 3, "SAVE", -1, 620, 395);
+
+    // Disegna il titolo
+    writeTextLCD(255, 255, 255, 4, "NEW PROFILE", 1, -1, 50);
+
+    // Funzione locale per disegnare i caratteri
+    auto drawChar = [&](int index) {
+        int xBase = 250 + (index * 120);
+        my_lcd.Set_Draw_color(50, 50, 50);
+        my_lcd.Fill_Rectangle(xBase - 10, 200, xBase + 40, 260);
+        writeTextLCD(255, 255, 255, 5, String((char)selectedChars[index]), -1, xBase + 5, 210);
+    };
+
+    // Disegna l'interfaccia iniziale
+    for(int i = 0; i < 3; i++) {
+        int xBase = 250 + (i * 120);
+        
+        // Pulsante UP
+        my_lcd.Set_Draw_color(255, 255, 255);
+        my_lcd.Fill_Triangle(xBase, 160, xBase + 30, 160, xBase + 15, 140);
+
+        // Carattere
+        drawChar(i);
+
+        // Pulsante DOWN
+        my_lcd.Fill_Triangle(xBase, 300, xBase + 30, 300, xBase + 15, 320);
+    }
+
+    // Loop di gestione touch
+    while(Display.screenNotTouched) {
+        my_touch.TP_Scan(0);
+        if(my_touch.TP_Get_State()&TP_PRES_DOWN) {
+            int16_t px = my_touch.x;
+            int16_t py = my_touch.y;
+
+            // Gestione Back button
+            if(is_pressed(640, 50, 740, 90, px, py)) { // Back button
+                Serial.println("BUTTON BACK PRESSED");
+                return drawUserScreen();
+            }
+
+            // Gestione Save button
+            if(is_pressed(291, 66, 391, 166, px, py)) { // Save button
+                Serial.println("SAVE BUTTON PRESSED");
+                Serial.println(" /Choise Profile: ");
+                Serial.println(choiceProfile);
+                EEPROM.get(choiceProfile, StoredProfile);
+                // Reset profili attivi
+                resetProfileActive();
+                
+                // Converti i codici ASCII in char
+                for(int i = 0; i < 3; i++) {
+                    StoredProfile.name[i] = (char)selectedChars[i];
+                }
+                StoredProfile.name[3] = '\0';
+                StoredProfile.highScore = 0;
+                StoredProfile.profileActive = 1;
+                StoredProfile.eepromPos = choiceProfile;
+                // Salva in EEPROM
+                EEPROM.put(choiceProfile, StoredProfile);
+                EEPROM.get(choiceProfile, StoredProfile);
+                Serial.println(StoredProfile.eepromPos);
+                Flipper.activeProfile = StoredProfile;
+
+                drawUserScreen();
+                return;
+            }
+
+            // Gestione pulsanti UP per ogni carattere
+            // Primo carattere UP
+            if(is_pressed(511, 66, 611, 166, px, py)) {
+                selectedChars[0]++;
+                if(selectedChars[0] > 90) selectedChars[0] = 65;
+                drawChar(0);
+                delay(300);
+            }
+            // Secondo carattere UP
+            else if(is_pressed(401, 66, 501, 166, px, py)) {
+                selectedChars[1]++;
+                if(selectedChars[1] > 90) selectedChars[1] = 65;
+                drawChar(1);
+                delay(300);
+            }
+            // Terzo carattere UP
+            else if(is_pressed(291, 66, 391, 166, px, py)) {
+                selectedChars[2]++;
+                if(selectedChars[2] > 90) selectedChars[2] = 65;
+                drawChar(2);
+                delay(300);
+            }
+
+            // Gestione pulsanti DOWN per ogni carattere
+            // Primo carattere DOWN
+            if(is_pressed(511, 313, 611, 413, px, py)) {
+                selectedChars[0]--;
+                if(selectedChars[0] < 65) selectedChars[0] = 90;
+                drawChar(0);
+                delay(300);
+            }
+            // Secondo carattere DOWN
+            else if(is_pressed(401, 313, 501, 413, px, py)) {
+                selectedChars[1]--;
+                if(selectedChars[1] < 65) selectedChars[1] = 90;
+                drawChar(1);
+                delay(300);
+            }
+            // Terzo carattere DOWN
+            else if(is_pressed(291, 313, 391, 413, px, py)) {
+                selectedChars[2]--;
+                if(selectedChars[2] < 65) selectedChars[2] = 90;
+                drawChar(2);
+                delay(300);
+            }
+        }
+    }
+}
+
+void drawUserInfo() {
+    Display.screenNotTouched = true;
+
+    // Pulisci lo schermo
+    my_lcd.Fill_Screen(BG_COLOR);
+
+    // Disegna il pulsante Back
+    drawBackButton(60, 380, 160, 430, 75, 395);
+
+    // Disegna l'intestazione "CHECK PROFILE"
+    writeTextLCD(255, 255, 255, 5, "CHECK PROFILE", 1, -1, 51);
+
+    // Rettangolo grigio per info
+    my_lcd.Set_Draw_color(50, 50, 50);
+    my_lcd.Fill_Rectangle(15, 120, 785, 250);
+
+    // Quadrato giallo con nome profilo
+    my_lcd.Set_Draw_color(230, 200, 0);
+    my_lcd.Fill_Rectangle(30, 135, 130, 235);
+    // Nome profilo in nero
+    writeTextLCD(0, 0, 0, 4, String(Flipper.activeProfile.name), -1, 50, 175);
+
+    // Informazioni profilo in bianco
+    writeTextLCD(255, 255, 255, 3, "HIGH SCORE", -1, 200, 155);
+    writeTextLCD(255, 255, 255, 4, String(Flipper.activeProfile.highScore)+" pt", -1, 500, 155);
+
+    // Trova posizione nella scoreboard
+    int position = 0;
+    EEPROM.get(START_POINT_EEPROM_SCOREBOARD, StoredScoreboard);
+    for(int i = 0; i < 11; i++) {
+        if(strcmp(StoredScoreboard[i].name, Flipper.activeProfile.name) == 0) {
+            position = i + 1;
+            break;
+        }
+    }
+    writeTextLCD(255, 255, 255, 3, "PLACEMENT", -1, 200, 205);
+    writeTextLCD(255, 255, 255, 4, String(position)+ "#", -1, 500, 205);
+
+    // Pulsante ERASE
+    my_lcd.Set_Draw_color(220, 20, 60);  // Rosso scuro
+    my_lcd.Fill_Rectangle(600, 380, 720, 430);
+    writeTextLCD(255, 255, 255, 3, "ERASE", -1, 620, 395);
+
+    // Loop gestione touch
+    while(Display.screenNotTouched) {
+        my_touch.TP_Scan(0);
+        if(my_touch.TP_Get_State()&TP_PRES_DOWN) {
+            int16_t px = my_touch.x;
+            int16_t py = my_touch.y;
+
+            // Back button
+            if(is_pressed(640, 50, 740, 90, px, py)) {
+                backToMenu();
+                return;
+            }
+
+            // Erase button
+            if(is_pressedOK(600, 380, 720, 430, px, py)) {
+                deleteUserScreen();
+                return;
+            }
+        }
+    }
+}
+
+void deleteUserScreen() {
+    Display.screenNotTouched = true;
+
+    // Pulisci lo schermo
+    my_lcd.Fill_Screen(BG_COLOR);
+
+    // Intestazione "DELETE USER?" in rosso
+    writeTextLCD(220, 20, 60, 5, "DELETE USER?", 1, -1, 51);
+
+    // Pulsante Verde con "Y"
+    my_lcd.Set_Draw_color(40, 220, 80);  // Verde
+    my_lcd.Fill_Rectangle(250, 200, 350, 300);  // Quadrato 100x100
+    writeTextLCD(0, 0, 0, 5, "Y", -1, 290, 235);  // Y in nero
+
+    // Pulsante Rosso con "N"
+    my_lcd.Set_Draw_color(220, 20, 60);  // Rosso
+    my_lcd.Fill_Rectangle(450, 200, 550, 300);  // Quadrato 100x100
+    writeTextLCD(0, 0, 0, 5, "N", -1, 490, 235);  // N in nero
+
+    // Loop gestione touch
+    while(Display.screenNotTouched) {
+        my_touch.TP_Scan(0);
+        if(my_touch.TP_Get_State()&TP_PRES_DOWN) {
+            int16_t px = my_touch.x;
+            int16_t py = my_touch.y;
+
+            // Pulsante Y (Verde)
+            if(is_pressedOK(250, 200, 350, 300, px, py)) {
+                // Reset del profilo
+                resetProfile(Flipper.activeProfile.eepromPos);
+                // Torna alla schermata utenti
+                drawUserScreen();
+                return;
+            }
+
+            // Pulsante N (Rosso)
+            if(is_pressedOK(450, 200, 550, 300, px, py)) {
+              
+                // Torna alla schermata info utente
+                drawUserInfo();
+                return;
+            }
+        }
+    }
+}
+
+void resetProfile(int eepromPos) {
+  PROFILE _blankProfile;
+  _blankProfile = blankProfile;
+  _blankProfile.eepromPos = eepromPos;
+  Flipper.activeProfile = _blankProfile;
+  EEPROM.get(eepromPos, StoredProfile);
+  EEPROM.put(eepromPos, _blankProfile);
+  int const dim = (PROFILE_SIZE*PROFILES)-10;
+  for (int adrs = 10; adrs <= dim; adrs+=PROFILE_SIZE) {
+    // richiamo la StoredProfile
+    EEPROM.get(adrs, StoredProfile);
+    if(StoredProfile.profileActive == 0) { // cerca il primo che non è attivo e lo assegna
+      Serial.println("TRVOATO HIHIHI");
+      StoredProfile.profileActive = 1;
+      EEPROM.put(adrs, StoredProfile);
+      Flipper.activeProfile = StoredProfile;
+      return; // ed esci
+    }    
+  }
+  Serial.println("NN TRVATO NULLA SKS");
+  // qui non ha trovato nulla
+  drawNewUserScreen(10);
 }
 
 void changeCurrentScreen(int selectedScreen){
@@ -266,6 +544,7 @@ void changeCurrentScreen(int selectedScreen){
       drawScoreBoardScreen(-1);
       break;
     case 40:
+      Reset_AVR();
       // settings
       break;
     default:
@@ -1395,15 +1674,16 @@ void setup() {
     EEPROM.put(i, blankProfile); 
   }*/
   Serial.begin(9600);
-  delay(3000);
+  delay(500);
   setupPin();
-  // loadDefaultProfile(); //Carica il DefaultProfile nella EEPROM
   // newProfile();
   // flushEEPROM();
   // customFlushEEPROM(120);
-  // debugEEPROM();
+  // delay(500);
+  //  loadDefaultProfile(); //Carica il DefaultProfile nella EEPROM
   // initializeScoreBoard();
   // initializeScoreBoardEEPROM();
+  debugEEPROM();
   Serial.flush();
   
   //Spengo subito il pin di SPINTA
@@ -1475,6 +1755,26 @@ boolean is_pressed(int16_t y1,int16_t x1,int16_t y2,int16_t x2,int16_t px,int16_
   }
 }
 
+boolean is_pressedOK(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t px, int16_t py) {
+  // Ora x1 e x2 rappresentano i limiti verticali, mentre y1 e y2 quelli orizzontali
+  Serial.println("PX: ");
+  Serial.println(px);
+  Serial.println("PY: ");
+  Serial.println(py);
+
+  int pxOK = 799-py;
+  int pyOK = 479-px;
+  
+  if ((pxOK > x1 && pxOK < x2) && (pyOK > y1 && pyOK < y2)) {
+      // Serial.println("true");
+      return true;  
+  } else {
+      // Serial.println("false");
+      return false;  
+  }
+}
+
+
 int managerTouchScreen() {
   int16_t px = 0;
   int16_t py = 0;
@@ -1493,21 +1793,22 @@ int managerTouchScreen() {
   // dal basso all'alto per le x (da 0 a 479)
   // MAIN MENU SCREEN
   if(Display.currentScreen == 0) {
-    if(is_pressed(widthScreen-(188+(buttonDim)), heightScren-(313+(buttonDim)), widthScreen-188, heightScren-313, px, py)){ // play button
-      return 1;
-    }
+    if(is_pressed(511, 66, 611, 166, px, py)){ // play button
+    return 1;
+  }
+
     
-    if(is_pressed(799-(188+(space)+(buttonDim*2)), 479-(313+(buttonDim)), 799-(188+buttonDim*2)+(space), 479-313, px, py)){ // user button
-      return 2;
-    }
+    if(is_pressed(401, 66, 501, 166, px, py)){ // user button
+    return 2;
+  }
 
-    if(is_pressed(799-(188+(space*2)+(buttonDim*3)), 479-(313+(buttonDim)), 799-(188+buttonDim*3)+(space*2), 479-313, px, py)){ // score button
-      return 3;
-    }
+    if(is_pressed(291, 66, 391, 166, px, py)){ // score button
+    return 3;
+  }
 
-    if(is_pressed(799-(188+(space*3)+(buttonDim*4)), 479-(313+(buttonDim)), 799-(188+buttonDim*4)+(space*3), 479-313, px, py)){ // score button
-      return 4;
-    }
+    if(is_pressed(181, 66, 281, 166, px, py)){ // score button
+    return 4;
+  }
   }
   // SCOREBOARD SCREEN
   if(Display.currentScreen == 30) {
@@ -1528,28 +1829,28 @@ int managerTouchScreen() {
     if(is_pressed(450, 240, 570, 330, px, py)){ // user: 20
       return 20;
     }
-    if(is_pressed(320, 240, 450, 330, px, py)){ // user: 30
+    if(is_pressed(320, 240, 460, 330, px, py)){ // user: 30
       return 30;
     }
-    if(is_pressed(200, 240, 330, 330, px, py)){ // user: 40
+    if(is_pressed(210, 240, 330, 330, px, py)){ // user: 40
       return 40;
     }
-    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 50
+    if(is_pressed(100, 240, 220, 330, px, py)){ // user: 50
       return 50;
     }
-    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 60
+    if(is_pressed(590, 120, 690, 210, px, py)){ // user: 60
       return 60;
     }
-    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 70
+    if(is_pressed(450, 120, 570, 210, px, py)){ // user: 70
       return 70;
     }
-    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 80
+    if(is_pressed(320, 120, 460, 210, px, py)){ // user: 80
       return 80;
     }
-    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 90
+    if(is_pressed(210, 120, 330, 210, px, py)){ // user: 90
       return 90;
     }
-    if(is_pressed(560, 240, 690, 330, px, py)){ // user: 100
+    if(is_pressed(100, 120, 220, 210, px, py)){ // user: 100
       return 100;
     }
   }
